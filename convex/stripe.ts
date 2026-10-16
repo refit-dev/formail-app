@@ -4,6 +4,7 @@ import { v } from 'convex/values';
 import Stripe from 'stripe';
 import { internal } from './_generated/api';
 import { action, internalAction } from './_generated/server';
+import { getSubscriptionPeriodEnd, getInvoiceSubscription } from './stripe-subscription-period';
 
 type Metadata = {
   userId: string;
@@ -24,7 +25,7 @@ export const pay = action({
 
     const domain = process.env.HOSTING_URL ?? 'http://localhost:3000';
     const stripe = new Stripe(process.env.STRIPE_SECRET!, {
-      apiVersion: '2023-10-16',
+      apiVersion: '2026-09-30.endive',
     });
     const session = await stripe.checkout.sessions.create({
       line_items: [{ price: process.env.PRICE_ID!, quantity: 1 }],
@@ -45,7 +46,7 @@ export const fulfill = internalAction({
   args: { signature: v.string(), payload: v.string() },
   handler: async (ctx, args) => {
     const stripe = new Stripe(process.env.STRIPE_SECRET!, {
-      apiVersion: '2023-10-16',
+      apiVersion: '2026-09-30.endive',
     });
 
     const webhookSecret = process.env.STRIPE_WEBHOOKS_SECRET!;
@@ -71,18 +72,18 @@ export const fulfill = internalAction({
         await ctx.runMutation(internal.users.updateSubscription, {
           tokenIdentifier: userId,
           subscriptionId: subscription.id,
-          endsOn: subscription.current_period_end * 1000,
+          endsOn: (getSubscriptionPeriodEnd(subscription, (items) => items[0])) * 1000,
         });
       }
 
       if (event.type === 'invoice.payment_succeeded') {
         const subscription = await stripe.subscriptions.retrieve(
-          completedEvent.subscription as string
+          (getInvoiceSubscription(completedEvent)) as string
         );
 
         await ctx.runMutation(internal.users.updateSubscriptionBySubId, {
           subscriptionId: subscription.items.data[0]?.price.id,
-          endsOn: subscription.current_period_end * 1000,
+          endsOn: (getSubscriptionPeriodEnd(subscription, (items) => items[0])) * 1000,
         });
       }
 
